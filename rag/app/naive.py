@@ -99,14 +99,37 @@ def by_mineru(
 
         if mineru_llm_name:
             try:
-                ocr_model = LLMBundle(tenant_id=tenant_id, llm_type=LLMType.OCR, llm_name=mineru_llm_name, lang=lang)
+                # Get mineru_lang from parser_config or kb_parser_config
+                parser_cfg = kwargs.get('parser_config', {})
+                actual_lang = parser_cfg.get('mineru_lang')
+                
+                # If not in parser_config, try to get from KB config
+                if not actual_lang:
+                    kb_id = kwargs.get('kb_id')
+                    if kb_id:
+                        try:
+                            from api.db.services.knowledgebase_service import KnowledgebaseService
+                            e, kb = KnowledgebaseService.get_by_id(kb_id)
+                            if e and kb and hasattr(kb, 'parser_config') and kb.parser_config:
+                                actual_lang = kb.parser_config.get('mineru_lang')
+                                logging.info(f"[naive.by_mineru] Got mineru_lang from KB parser_config: {actual_lang}")
+                        except Exception as e:
+                            logging.warning(f"[naive.by_mineru] Failed to fetch KB parser_config: {e}")
+                
+                # Final fallback to lang parameter
+                if not actual_lang:
+                    actual_lang = lang
+                    
+                logging.info(f"[naive.by_mineru] Using language: {actual_lang}")
+                
+                ocr_model = LLMBundle(tenant_id=tenant_id, llm_type=LLMType.OCR, llm_name=mineru_llm_name, lang=actual_lang)
                 pdf_parser = ocr_model.mdl
                 sections, tables = pdf_parser.parse_pdf(
                     filepath=filename,
                     binary=binary,
                     callback=callback,
                     parse_method=parse_method,
-                    lang=lang,
+                    lang=actual_lang,
                     **kwargs,
                 )
                 return sections, tables, pdf_parser

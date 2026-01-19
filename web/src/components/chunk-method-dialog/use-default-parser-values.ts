@@ -9,7 +9,7 @@ export function useDefaultParserValues() {
   const defaultParserValues = useMemo(() => {
     const defaultParserValues = {
       task_page_size: 12,
-      layout_recognize: ParseDocumentType.DeepDOC,
+      layout_recognize: 'MinerU',
       chunk_token_num: 512,
       delimiter: '\n',
       enable_children: false,
@@ -20,9 +20,9 @@ export function useDefaultParserValues() {
       toc_extraction: false,
       image_table_context_window: 0,
       mineru_parse_method: 'auto',
-      mineru_formula_enable: true,
+      mineru_formula_enable: false,
       mineru_table_enable: true,
-      mineru_lang: 'English',
+      mineru_lang: 'Korean',
       // raptor: {
       //   use_raptor: false,
       //   prompt: t('knowledgeConfiguration.promptText'),

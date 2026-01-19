@@ -586,11 +586,22 @@ class MinerUParser(RAGFlowPdfParser):
         created_tmp_dir = False
 
         parser_cfg = kwargs.get('parser_config', {})
-        lang = parser_cfg.get('mineru_lang') or kwargs.get('lang', 'English')
+        
+        # Extract mineru-specific settings from nested 'mineru' key
+        mineru_settings = parser_cfg.get('mineru', {})
+        
+        # Language: try mineru settings, then parser_cfg, then kwargs, finally default
+        lang = mineru_settings.get('lang') or parser_cfg.get('mineru_lang') or kwargs.get('lang', 'English')
         mineru_lang_code = LANGUAGE_TO_MINERU_MAP.get(lang, 'ch')  # Defaults to Chinese if not matched
-        mineru_method_raw_str = parser_cfg.get('mineru_parse_method', 'auto')
-        enable_formula = parser_cfg.get('mineru_formula_enable', True)
-        enable_table = parser_cfg.get('mineru_table_enable', True)
+        
+        # Parse method: check both 'method' and 'parse_method' in mineru settings
+        mineru_method_raw_str = mineru_settings.get('method') or mineru_settings.get('parse_method') or parser_cfg.get('mineru_parse_method', 'auto')
+        
+        # Formula and table: use mineru settings if available, with explicit defaults
+        enable_formula = mineru_settings.get('formula', mineru_settings.get('formula_enable', parser_cfg.get('mineru_formula_enable', True)))
+        enable_table = mineru_settings.get('table', mineru_settings.get('table_enable', parser_cfg.get('mineru_table_enable', True)))
+        
+        self.logger.info(f"[MinerU] Extracted options - lang={lang}, lang_code={mineru_lang_code}, method={mineru_method_raw_str}, formula={enable_formula}, table={enable_table}")
 
         # remove spaces, or mineru crash, and _read_output fail too
         file_path = Path(filepath)

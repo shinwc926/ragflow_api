@@ -158,6 +158,7 @@ RUN --mount=type=cache,id=ragflow_uv,target=/root/.cache/uv,sharing=locked \
 
 COPY web web
 COPY docs docs
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN --mount=type=cache,id=ragflow_npm,target=/root/.npm,sharing=locked \
     cd web && npm install && npm run build
 
