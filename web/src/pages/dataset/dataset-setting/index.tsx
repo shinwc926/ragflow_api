@@ -78,9 +78,9 @@ export default function DatasetSettings() {
         overlapped_percent: 0,
         // MinerU-specific defaults
         mineru_parse_method: 'auto',
-        mineru_formula_enable: true,
+        mineru_formula_enable: false,
         mineru_table_enable: true,
-        mineru_lang: 'English',
+        mineru_lang: 'Korean',
         raptor: {
           use_raptor: true,
           max_token: 256,
