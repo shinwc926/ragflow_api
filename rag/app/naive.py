@@ -124,7 +124,7 @@ def by_mineru(
                 
                 ocr_model = LLMBundle(tenant_id=tenant_id, llm_type=LLMType.OCR, llm_name=mineru_llm_name, lang=actual_lang)
                 pdf_parser = ocr_model.mdl
-                sections, tables = pdf_parser.parse_pdf(
+                sections, tables, images = pdf_parser.parse_pdf(
                     filepath=filename,
                     binary=binary,
                     callback=callback,
@@ -132,13 +132,13 @@ def by_mineru(
                     lang=actual_lang,
                     **kwargs,
                 )
-                return sections, tables, pdf_parser
+                return sections, tables, images, pdf_parser
             except Exception as e:
                 logging.error(f"Failed to parse pdf via LLMBundle MinerU ({mineru_llm_name}): {e}")
 
     if callback:
         callback(-1, "MinerU not found.")
-    return None, None, None
+    return None, None, None, None
 
 
 def by_docling(filename, binary=None, from_page=0, to_page=100000, lang="Chinese", callback=None, pdf_cls=None, **kwargs):
@@ -149,7 +149,7 @@ def by_docling(filename, binary=None, from_page=0, to_page=100000, lang="Chinese
         callback(-1, "Docling not found.")
         return None, None, pdf_parser
 
-    sections, tables = pdf_parser.parse_pdf(
+    sections, tables, images = pdf_parser.parse_pdf(
         filepath=filename,
         binary=binary,
         callback=callback,
@@ -203,7 +203,7 @@ def by_paddleocr(
             try:
                 ocr_model = LLMBundle(tenant_id=tenant_id, llm_type=LLMType.OCR, llm_name=paddleocr_llm_name, lang=lang)
                 pdf_parser = ocr_model.mdl
-                sections, tables = pdf_parser.parse_pdf(
+                sections, tables, images = pdf_parser.parse_pdf(
                     filepath=filename,
                     binary=binary,
                     callback=callback,
@@ -786,6 +786,7 @@ def chunk(filename, binary=None, from_page=0, to_page=100000, lang="Chinese", ca
     res = []
     pdf_parser = None
     section_images = None
+    skip_naive_merge = False
 
     is_root = kwargs.get("is_root", True)
     embed_res = []
@@ -855,10 +856,13 @@ def chunk(filename, binary=None, from_page=0, to_page=100000, lang="Chinese", ca
             layout_recognizer = "DeepDOC" if layout_recognizer else "Plain Text"
 
         name = layout_recognizer.strip().lower()
+        logging.info(f"[chunk-PDF] layout_recognizer: {layout_recognizer}, parser name: {name}")
+        logging.info(f"[chunk-PDF] parser_config before calling parser: {parser_config}")
+        logging.info(f"[chunk-PDF] chunk_token_num: {parser_config.get('chunk_token_num', 'NOT_SET')}")
         parser = PARSERS.get(name, by_plaintext)
         callback(0.1, "Start to parse.")
 
-        sections, tables, pdf_parser = parser(
+        parser_result = parser(
             filename=filename,
             binary=binary,
             from_page=from_page,
@@ -871,6 +875,13 @@ def chunk(filename, binary=None, from_page=0, to_page=100000, lang="Chinese", ca
             **kwargs,
         )
 
+        # MinerU는 4개, 다른 파서는 3개 반환
+        if name == "mineru":
+            sections, tables, parser_images, pdf_parser = parser_result
+        else:
+            sections, tables, pdf_parser = parser_result
+            parser_images = None
+
         if not sections and not tables:
             return []
 
@@ -879,8 +890,15 @@ def chunk(filename, binary=None, from_page=0, to_page=100000, lang="Chinese", ca
 
         if name in ["tcadp", "docling", "mineru", "paddleocr"]:
             parser_config["chunk_token_num"] = 0
+            skip_naive_merge = True
 
         res = tokenize_table(tables, doc, is_english)
+        
+        # MinerU 이미지 처리
+        if parser_images:
+            res.extend(tokenize_table(parser_images, doc, is_english))
+            logging.info(f"[MinerU] Added {len(parser_images)} image chunks")
+        
         callback(0.8, "Finish parsing.")
 
     elif re.search(r"\.(csv|xlsx?)$", filename, re.IGNORECASE):
@@ -1059,13 +1077,44 @@ def chunk(filename, binary=None, from_page=0, to_page=100000, lang="Chinese", ca
             if all(image is None for image in section_images):
                 section_images = None
 
-        if section_images:
-            chunks, images = naive_merge_with_images(sections, section_images, int(parser_config.get("chunk_token_num", 128)), parser_config.get("delimiter", "\n!?。；！？"))
-            res.extend(tokenize_chunks_with_images(chunks, doc, is_english, images, child_delimiters_pattern=child_deli))
-        else:
-            chunks = naive_merge(sections, int(parser_config.get("chunk_token_num", 128)), parser_config.get("delimiter", "\n!?。；！？"))
+        # Check if using parsers that already perform merging (mineru)
+        if re.search(r"\.pdf$", filename, re.IGNORECASE):
+            layout_recognizer = parser_config.get("layout_recognize", "DeepDOC")
+            if isinstance(layout_recognizer, bool):
+                layout_recognizer = "DeepDOC" if layout_recognizer else "Plain Text"
+            name = layout_recognizer.strip().lower()
+            if name in ["mineru"]:
+                skip_naive_merge = True
 
-            res.extend(tokenize_chunks(chunks, doc, is_english, pdf_parser, child_delimiters_pattern=child_deli))
+        if section_images:
+            if skip_naive_merge:
+                # Skip naive_merge for parsers that already merged
+                # Keep position tags for bbox information
+                chunks = [sec[0] + sec[1] for sec in sections]
+                images = section_images
+                logging.info("Skipping naive_merge for {} (already merged by parser)".format(name))
+            else:
+                chunks, images = naive_merge_with_images(sections, section_images, int(parser_config.get("chunk_token_num", 128)), parser_config.get("delimiter", "\n!?。；！？"))
+            
+            if kwargs.get("section_only", False):
+                chunks.extend(embed_res)
+                return chunks
+            
+            res.extend(tokenize_chunks_with_images(chunks, doc, is_english, images))
+        else:
+            if skip_naive_merge:
+                # Skip naive_merge for parsers that already merged
+                # Keep position tags for bbox information
+                chunks = [sec[0] + sec[1] for sec in sections]
+                logging.info("Skipping naive_merge for {} (already merged by parser)".format(name))
+            else:
+                chunks = naive_merge(sections, int(parser_config.get("chunk_token_num", 128)), parser_config.get("delimiter", "\n!?。；！？"))
+            
+            if kwargs.get("section_only", False):
+                chunks.extend(embed_res)
+                return chunks
+            
+            res.extend(tokenize_chunks(chunks, doc, is_english, pdf_parser))
 
     if urls and parser_config.get("analyze_hyperlink", False) and is_root:
         for index, url in enumerate(urls):

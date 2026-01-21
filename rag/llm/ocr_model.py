@@ -79,7 +79,7 @@ class MinerUOcrModel(Base, MinerUParser):
         if not ok:
             raise RuntimeError(f"MinerU server not accessible: {reason}")
 
-        sections, tables = MinerUParser.parse_pdf(
+        sections, tables, images = MinerUParser.parse_pdf(
             self,
             filepath=filepath,
             binary=binary,
@@ -91,7 +91,7 @@ class MinerUOcrModel(Base, MinerUParser):
             parse_method=parse_method,
             **kwargs,
         )
-        return sections, tables
+        return sections, tables, images
 
 
 class PaddleOCROcrModel(Base, PaddleOCRParser):
