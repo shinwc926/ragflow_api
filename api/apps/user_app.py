@@ -125,7 +125,9 @@ async def login():
         )
     elif user:
         response_data = user.to_json()
-        user.access_token = get_uuid()
+        # 중복 허용을 위한 조건 추가 by 유지수
+        if not user.access_token or user.access_token.startswith("INVALID_"): 
+            user.access_token = get_uuid()
         login_user(user)
         user.update_time = current_timestamp()
         user.update_date = datetime_format(datetime.now())

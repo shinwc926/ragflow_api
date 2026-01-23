@@ -83,14 +83,18 @@ class Dealer:
             return res[:topn]
 
         # 2) If not found and tk is purely alphabetical → fallback to WordNet
-        if re.fullmatch(r"[a-z]+", tk):
-            wn_set = {
-                re.sub("_", " ", syn.name().split(".")[0])
-                for syn in wordnet.synsets(tk)
-            }
-            wn_set.discard(tk)  # Remove the original token itself
-            wn_res = [t for t in wn_set if t]
-            return wn_res[:topn]
+        # [DISABLED] WordNet synonym expansion for Korean document search
+        # English synonym expansion is unnecessary when searching primarily Korean documents
+        # Previously: WordNet would expand "assistant" → "adjunct", "helper", etc.
+        # But this adds noise and is not needed for Korean text retrieval
+        # if re.fullmatch(r"[a-z]+", tk):
+        #     wn_set = {
+        #         re.sub("_", " ", syn.name().split(".")[0])
+        #         for syn in wordnet.synsets(tk)
+        #     }
+        #     wn_set.discard(tk)  # Remove the original token itself
+        #     wn_res = [t for t in wn_set if t]
+        #     return wn_res[:topn]
 
         # 3) Nothing found in either source
         return []
