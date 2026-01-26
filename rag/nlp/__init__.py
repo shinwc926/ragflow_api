@@ -253,23 +253,55 @@ def is_english(texts):
     return (eng / len(texts)) > 0.8
 
 
-def is_chinese(text):
-    if not text:
-        return False
-    chinese = 0
-    for ch in text:
-        if '\u4e00' <= ch <= '\u9fff':
-            chinese += 1
-    if chinese / len(text) > 0.2:
-        return True
-    return False
+# def is_chinese(text):
+#     if not text:
+#         return False
+#     chinese = 0
+#     for ch in text:
+#         if '\u4e00' <= ch <= '\u9fff':
+#             chinese += 1
+#     if chinese / len(text) > 0.2:
+#         return True
+#     return False
 
+def is_chinese(line):
+    # arr = re.split(r"[ \t]+", line)
+    # if len(arr) <= 3:
+    #     return True
+    # e = 0
+    # for t in arr:
+    #     if not re.match(r"[a-zA-Z]+$", t):
+    #         e += 1
+    # return e * 1.0 / len(arr) >= 0.7
+    """
+    중국어(간체/번체) 문자를 직접 체크하여 중국어 여부를 판별합니다.
+    
+    알고리즘: 공백으로 분리된 토큰 중 중국어 문자(한자)를 포함하는 토큰의 비율이 30% 이상이면 중국어로 판단합니다.
+    중국어 유니코드 범위: 
+    - \u4e00-\u9fff: CJK 통합 한자
+    - \u3400-\u4dbf: CJK 확장 A
+    - \uf900-\ufaff: CJK 호환 한자
+    """
+    arr = re.split(r"[ \t]+", line)
+    if not arr:
+        return False
+    chinese_count = 0
+    for token in arr:
+        # 중국어 문자(한자) 포함 여부 체크
+        if re.search(r"[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]", token):
+            chinese_count += 1
+    return (chinese_count * 1.0 / len(arr)) >= 0.3
 
 def tokenize(d, txt, eng):
     from . import rag_tokenizer
     d["content_with_weight"] = txt
     t = re.sub(r"</?(table|td|caption|tr|th)( [^<>]{0,12})?>", " ", txt)
     d["content_ltks"] = rag_tokenizer.tokenize(t)
+    # eng=True이고 '\n\n' 구분자 존재 시 caption/body 분리
+    # XXX: eng=True 시 caption은 title_tks로 별도 토큰화
+    if eng and '\n\n' in t:
+        caption, body = t.split('\n\n', 1)
+        d["title_tks"] = rag_tokenizer.tokenize(caption)
     d["content_sm_ltks"] = rag_tokenizer.fine_grained_tokenize(d["content_ltks"])
 
 
@@ -395,7 +427,8 @@ def tokenize_table(tbls, doc, eng, batch_size=10):
         for i in range(0, len(rows), batch_size):
             d = copy.deepcopy(doc)
             r = de.join(rows[i:i + batch_size])
-            tokenize(d, r, eng)
+            # XXX: eng=True 시 caption은 title_tks로 별도 토큰화 강제함
+            tokenize(d, r, eng=True)
             d["doc_type_kwd"] = "table"
             if img:
                 d["image"] = img

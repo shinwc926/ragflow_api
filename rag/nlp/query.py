@@ -51,6 +51,7 @@ class FulltextQueryer(QueryBase):
 
         if not self.is_chinese(txt):
             txt = self.rmWWW(txt)
+            # XXX: rag_tokenizer.tokenize() 호출 시 한국어 토큰나이저 적용
             tks = rag_tokenizer.tokenize(txt).split()
             keywords = [t for t in tks if t]
             tks_w = self.tw.weights(tks, preprocess=False)
@@ -61,7 +62,8 @@ class FulltextQueryer(QueryBase):
             syns = []
             for tk, w in tks_w[:256]:
                 syn = self.syn.lookup(tk)
-                syn = rag_tokenizer.tokenize(" ".join(syn)).split()
+                # XXX: rag_tokenizer.tokenize() 호출 시 한국어 토큰나이저 적용을 막음
+                syn = rag_tokenizer.tokenize(" ".join(syn), force=True).split()
                 keywords.extend(syn)
                 syn = ["\"{}\"^{:.4f}".format(s, w / 4.) for s in syn if s.strip()]
                 syns.append(" ".join(syn))
@@ -80,9 +82,13 @@ class FulltextQueryer(QueryBase):
                         max(tks_w[i - 1][1], tks_w[i][1]) * 2,
                     )
                 )
+            txt = self.sub_special_char(txt)
             if not q:
                 q.append(txt)
-            query = " ".join(q)
+            query = " OR ".join(q)
+            query = f'("{txt}"^2.00) OR ({query})'
+            logging.info(f"[ES-QUERY] query: {query}")
+            logging.info(f"[ES-QUERY] keywords: {keywords}")
             return MatchTextExpr(
                 self.query_fields, query, 100, {"original_query": original_query}
             ), keywords
