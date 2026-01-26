@@ -2020,7 +2020,9 @@ class MinerUParser(RAGFlowPdfParser):
 
         # remove spaces, or mineru crash, and _read_output fail too
         file_path = Path(filepath)
-        pdf_file_name = file_path.stem.replace(" ", "") + ".pdf"
+        # XXX: Preserve original extension instead of forcing .pdf
+        file_ext = file_path.suffix or ".pdf"  # Default to .pdf if no extension
+        pdf_file_name = file_path.stem.replace(" ", "") + file_ext
         pdf_file_path_valid = os.path.join(file_path.parent, pdf_file_name)
 
         if binary:
@@ -2053,7 +2055,15 @@ class MinerUParser(RAGFlowPdfParser):
         if callback:
             callback(0.15, f"[MinerU] Output directory: {out_dir}")
 
-        self.__images__(pdf, zoomin=1)
+        # Only extract PDF page images if the file is actually a PDF
+        # Skip for image files (PNG, JPG, etc.) to avoid pdfplumber errors
+        file_ext = pdf.suffix.lower()
+        if file_ext == '.pdf':
+            self.__images__(pdf, zoomin=1)
+        else:
+            self.logger.info(f"[MinerU] Skipping __images__ for non-PDF file: {file_ext}")
+            self.page_images = None
+            self.pdf = None
 
         try:
             options = MinerUParseOptions(
