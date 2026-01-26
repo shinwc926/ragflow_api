@@ -925,10 +925,16 @@ def chunk(filename, binary=None, from_page=0, to_page=100000, lang="Chinese", ca
             # Default DeepDOC parser
             excel_parser = ExcelParser()
             if parser_config.get("html4excel"):
-                sections = [(_, "") for _ in excel_parser.html(binary, 12) if _]
+                # 변경: 전체 시트를 HTML로 변환(줄 제한 없음) 후 markdownify로 마크다운 변환
+                from markdownify import markdownify
+                html_tables = excel_parser.html(binary, 12)  # sheet별 전체 테이블
+                sections = [(markdownify(html), "") for html in html_tables if html]
+                skip_naive_merge = True  # sheet별로 이미 분리된 상태이므로 naive_merge를 타지 않음
                 parser_config["chunk_token_num"] = 0
             else:
                 sections = [(_, "") for _ in excel_parser(binary) if _]
+                skip_naive_merge = True  # 각 행을 개별 청크로 유지
+                # chunk_token_num을 설정하지 않음 (기본값 사용)
 
     elif re.search(r"\.(txt|py|js|java|c|cpp|h|php|go|ts|sh|cs|kt|sql)$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
