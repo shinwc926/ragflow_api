@@ -507,6 +507,65 @@ class MinerUParser(RAGFlowPdfParser):
             poss.append(([int(p) - 1 for p in pn.split("-")], left, right, top, bottom))
         return poss
 
+    # def _show_mineru_raw_blocks(self, content_list, max_blocks=100, page_start=None, page_end=None):
+    #     """
+    #     MinerU content_list의 각 블록의 type, text_level, text 등 주요 정보를 로그로 출력합니다.
+    #     Args:
+    #         content_list (list): mineru의 content_list.json에서 읽은 블록 리스트
+    #         max_blocks (int): 출력할 최대 블록 수
+    #         page_start (int, optional): 출력할 시작 페이지 인덱스 (포함)
+    #         page_end (int, optional): 출력할 끝 페이지 인덱스 (포함)
+    #     """
+    #     def safe_str_for_logging(s, max_length=50):
+    #         s = str(s)
+    #         if len(s) > max_length:
+    #             return s[:max_length] + "..."
+    #         return s
+        
+    #     # 페이지 필터링
+    #     if page_start is not None or page_end is not None:
+    #         filtered_blocks = []
+    #         for idx, block in enumerate(content_list):
+    #             page_idx = block.get("page_idx", -1)
+    #             if page_start is not None and page_idx < page_start:
+    #                 continue
+    #             if page_end is not None and page_idx > page_end:
+    #                 continue
+    #             filtered_blocks.append((idx, block))
+    #         target_blocks = filtered_blocks[:max_blocks]
+    #         if page_start is not None and page_end is not None:
+    #             page_desc = f"페이지 {page_start}~{page_end}의"
+    #         elif page_start is not None:
+    #             page_desc = f"페이지 {page_start}부터의"
+    #         elif page_end is not None:
+    #             page_desc = f"페이지 {page_end}까지의"
+    #         else:
+    #             page_desc = "지정된 페이지 범위의"
+    #     else:
+    #         target_blocks = list(enumerate(content_list[:max_blocks]))
+    #         page_desc = "처음"
+        
+    #     self.logger.info(f"[MinerU-INFO] ===== {page_desc} {len(target_blocks)}개 블록 RAW 데이터 =====")
+    #     for idx, block in target_blocks:
+    #         block_type = block.get("type", "unknown")
+    #         text_level = block.get("text_level", "없음")
+    #         text_preview = safe_str_for_logging(block.get("text", ""), max_length=50)
+    #         page_idx = block.get("page_idx", "?")
+    #         bbox = block.get("bbox", "없음")
+    #         self.logger.info(f"[MinerU-INFO] [블록 #{idx}]")
+    #         self.logger.info(f"[MinerU-INFO]   type: {block_type}")
+    #         if block_type == "text":
+    #             self.logger.info(f"[MinerU-INFO]   text_level: {text_level}")
+    #         self.logger.info(f"[MinerU-INFO]   page_idx: {page_idx}")
+    #         self.logger.info(f"[MinerU-INFO]   bbox: {bbox}")
+    #         self.logger.info(f"[MinerU-INFO]   text_preview: '{text_preview}...'")
+    #         self.logger.info(f"[MinerU-INFO]   전체 키: {list(block.keys())}")
+    #         # table_caption 내용 출력
+    #         if "table_caption" in block:
+    #             table_caption = block.get("table_caption", [])
+    #             self.logger.info(f"[MinerU-INFO]   table_caption: {table_caption}")
+    #     self.logger.info("[MinerU-INFO] ===== RAW 데이터 출력 끝 =====")
+
     def _show_mineru_raw_blocks(self, content_list, max_blocks=100, page_start=None, page_end=None):
         """
         MinerU content_list의 각 블록의 type, text_level, text 등 주요 정보를 로그로 출력합니다.
@@ -549,21 +608,46 @@ class MinerUParser(RAGFlowPdfParser):
         for idx, block in target_blocks:
             block_type = block.get("type", "unknown")
             text_level = block.get("text_level", "없음")
-            text_preview = safe_str_for_logging(block.get("text", ""), max_length=50)
             page_idx = block.get("page_idx", "?")
             bbox = block.get("bbox", "없음")
+            
             self.logger.info(f"[MinerU-INFO] [블록 #{idx}]")
             self.logger.info(f"[MinerU-INFO]   type: {block_type}")
             if block_type == "text":
                 self.logger.info(f"[MinerU-INFO]   text_level: {text_level}")
             self.logger.info(f"[MinerU-INFO]   page_idx: {page_idx}")
             self.logger.info(f"[MinerU-INFO]   bbox: {bbox}")
-            self.logger.info(f"[MinerU-INFO]   text_preview: '{text_preview}...'")
+            
+            # 블록 타입에 따라 다른 미리보기 표시
+            if block_type == "table":
+                # 테이블인 경우 table_body 정보 표시
+                table_body = block.get("table_body", "")
+                table_body_len = len(table_body) if table_body else 0
+                table_body_preview = safe_str_for_logging(table_body, max_length=100)
+                self.logger.info(f"[MinerU-INFO]   table_body_len: {table_body_len}")
+                self.logger.info(f"[MinerU-INFO]   table_body_preview: '{table_body_preview}'")
+            else:
+                # 일반 텍스트 블록
+                text_preview = safe_str_for_logging(block.get("text", ""), max_length=50)
+                self.logger.info(f"[MinerU-INFO]   text_preview: '{text_preview}'")
+            
             self.logger.info(f"[MinerU-INFO]   전체 키: {list(block.keys())}")
+            
             # table_caption 내용 출력
             if "table_caption" in block:
                 table_caption = block.get("table_caption", [])
                 self.logger.info(f"[MinerU-INFO]   table_caption: {table_caption}")
+            
+            # table_footnote 내용 출력
+            if "table_footnote" in block:
+                table_footnote = block.get("table_footnote", [])
+                self.logger.info(f"[MinerU-INFO]   table_footnote: {table_footnote}")
+            
+            # img_path 출력 (테이블 이미지 경로)
+            if "img_path" in block:
+                img_path = block.get("img_path", "")
+                self.logger.info(f"[MinerU-INFO]   img_path: {img_path}")
+                
         self.logger.info("[MinerU-INFO] ===== RAW 데이터 출력 끝 =====")
 
     def _preprocess_blocks(self, content_list: list[dict[str, Any]]):
@@ -2079,7 +2163,7 @@ class MinerUParser(RAGFlowPdfParser):
             final_out_dir = self._run_mineru(pdf, out_dir, options, callback=callback)
             outputs = self._read_output(final_out_dir, pdf.stem, method=mineru_method_raw_str, backend=backend)
             self.logger.info(f"[MinerU] Parsed {len(outputs)} blocks from PDF.")
-            self._show_mineru_raw_blocks(outputs, max_blocks=30, page_start=10, page_end=12)
+            self._show_mineru_raw_blocks(outputs, max_blocks=100, page_start=1, page_end=20)
 
             # 블록 전처리: header/footer 후보 감지 및 discarded 표시
             header_candidates, footer_candidates = self._preprocess_blocks(outputs)
