@@ -28,8 +28,17 @@ from PIL import Image
 from api.db.services.llm_service import LLMBundle
 from common.constants import LLMType
 from common.string_utils import clean_markdown_block
+from deepdoc.parser.pdf_parser import RAGFlowPdfParser
 from deepdoc.vision import OCR
-from rag.nlp import attach_media_context, rag_tokenizer, tokenize
+from rag.nlp import (
+    attach_media_context,
+    naive_merge,
+    naive_merge_with_images,
+    rag_tokenizer,
+    tokenize,
+    tokenize_chunks,
+    tokenize_chunks_with_images,
+)
 
 ocr = OCR()
 
@@ -239,9 +248,11 @@ def chunk(filename, binary, tenant_id, lang, callback=None, **kwargs):
             callback(prog=-1, msg=str(e))
     else:
         # Don't convert to PIL Image yet - pass binary directly to MinerU
+        img = Image.open(io.BytesIO(binary)).convert("RGB")
         doc.update(
             {
                 "doc_type_kwd": "image",
+                "image": img
             }
         )
         
@@ -251,26 +262,43 @@ def chunk(filename, binary, tenant_id, lang, callback=None, **kwargs):
             if result:
                 sections, tables, images = result
                 
-                # Store structured data in doc
-                doc["sections"] = sections
-                doc["tables"] = tables
-                doc["images"] = images
+                if callback:
+                    callback(0.7, f"Structured OCR complete: {len(sections)} sections, {len(tables)} tables, {len(images)} images")
                 
-                # Combine sections for text tokenization
-                txt = "\n\n".join([section[0] for section in sections])
+                # Extract section images
+                section_images = [img[0][0] if img and img[0] else None for img in images] if images else None
                 
-                # Create PIL Image for doc (needed by other components)
-                img = Image.open(io.BytesIO(binary)).convert("RGB")
-                doc["image"] = img
+                # Keep sections with position tags as individual chunks (no merging)
+                # Each section already has position tag information in format: "text@@page\tx\ty\tw\th##"
+                chunks = []
+                chunk_images = []
+                
+                for idx, sec in enumerate(sections):
+                    text, position_tag = sec if isinstance(sec, tuple) else (sec, "")
+                    
+                    # Keep the full text with position tag intact
+                    chunk_text = text + position_tag
+                    chunks.append(chunk_text)
+                    
+                    # Associate image if available
+                    if section_images and idx < len(section_images):
+                        chunk_images.append(section_images[idx])
+                    else:
+                        chunk_images.append(None)
                 
                 if callback:
-                    callback(0.9, f"Structured OCR complete: {len(sections)} sections, {len(tables)} tables, {len(images)} images")
+                    callback(0.85, f"Created {len(chunks)} chunks (block-based with position tags)")
                 
-                if txt.strip():
-                    tokenize(doc, txt, eng)
-                    return attach_media_context([doc], 0, image_ctx)
+                # Remove position tags before tokenizing
+                chunks_clean = [RAGFlowPdfParser.remove_tag(ck) for ck in chunks]
+                
+                # Tokenize chunks with images if available
+                if chunk_images and any(img is not None for img in chunk_images):
+                    results = tokenize_chunks_with_images(chunks_clean, doc, eng, chunk_images)
                 else:
-                    logging.warning("[Picture] Structured OCR returned no text, falling back to simple OCR")
+                    results = tokenize_chunks(chunks_clean, doc, eng)
+                
+                return results
         
         # Option 2: Simple OCR (text only, original behavior)
         # Try MinerU OCR first (supports Korean) - pass binary directly
@@ -279,8 +307,6 @@ def chunk(filename, binary, tenant_id, lang, callback=None, **kwargs):
         # Fallback to deepdoc OCR if MinerU fails (needs PIL Image)
         if not txt:
             callback(0.2, "Using fallback OCR...")
-            img = Image.open(io.BytesIO(binary)).convert("RGB")
-            doc["image"] = img
             bxs = ocr(np.array(img))
             txt = "\n".join([t[0] for _, t in bxs if t[0]])
         
