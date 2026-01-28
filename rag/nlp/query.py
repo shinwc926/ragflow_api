@@ -41,6 +41,34 @@ class FulltextQueryer(QueryBase):
     def question(self, txt, tbl="qa", min_match: float = 0.6):
         original_query = txt
         txt = self.add_space_between_eng_zh(txt)
+        
+        # Expand article pattern for flexible matching
+        article_expansions = []
+        
+        # Pattern 1: "제24조" → expand to include "제 24 조"
+        for match in re.finditer(r'제\s*(\d+)\s*조', txt):
+            article_num = match.group(1)
+            original = match.group(0)
+            normalized = f"제{article_num}조"  # "제24조"
+            spaced = f"제 {article_num} 조"     # "제 24 조"
+            if original != normalized:
+                article_expansions.append((original, f"({normalized} OR \"{spaced}\")"))
+            elif original != spaced:
+                article_expansions.append((original, f"(\"{original}\" OR \"{spaced}\")"))
+        
+        # Pattern 2: "24조" (without 제) → expand to "제24조" and variations
+        # Use negative lookbehind to avoid matching "제24조" again
+        for match in re.finditer(r'(?<!제)(?<!\s)\b(\d+)\s*조', txt):
+            article_num = match.group(1)
+            original = match.group(0)
+            # Skip if this was already matched by Pattern 1
+            if any(original in exp[0] for exp in article_expansions):
+                continue
+            normalized = f"제{article_num}조"
+            spaced = f"제 {article_num} 조"
+            # Expand "24조" → search for both "제24조" and "24조"
+            article_expansions.append((original, f"({original} OR {normalized} OR \"{spaced}\")"))
+        
         txt = re.sub(
             r"[ :|\r\n\t,，。？?/`!！&^%%()\[\]{}<>]+",
             " ",
@@ -87,6 +115,11 @@ class FulltextQueryer(QueryBase):
                 q.append(txt)
             query = " OR ".join(q)
             query = f'("{txt}"^2.00) OR ({query})'
+            
+            # Apply article pattern expansions
+            for original, expansion in article_expansions:
+                query = query.replace(original, expansion)
+            
             logging.info(f"[ES-QUERY] query: {query}")
             logging.info(f"[ES-QUERY] keywords: {keywords}")
             return MatchTextExpr(
@@ -174,6 +207,14 @@ class FulltextQueryer(QueryBase):
             query = " OR ".join([f"({t})" for t in qs if t])
             if not query:
                 query = otxt
+            
+            # Apply article pattern expansions for Korean text
+            for original, expansion in article_expansions:
+                # Replace in query if pattern exists
+                if original in query:
+                    query = query.replace(f'"{original}"', expansion)
+                    query = query.replace(original, expansion)
+            
             return MatchTextExpr(
                 self.query_fields, query, 100, {"minimum_should_match": min_match, "original_query": original_query}
             ), keywords

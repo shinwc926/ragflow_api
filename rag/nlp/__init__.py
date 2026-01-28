@@ -355,6 +355,32 @@ def tokenize_chunks(chunks, doc, eng, pdf_parser=None, child_delimiters_pattern=
             continue
 
         tokenize(d, ck, eng)
+        
+        # Add "문서제목 + 제n조" to important_kwd for better search
+        article_match = re.match(r'제\s*(\d+)\s*조', ck.strip())
+        if article_match:
+            doc_name = doc.get('docnm_kwd', '')
+            original_article = article_match.group(0)  # e.g., "제 15 조"
+            article_num = article_match.group(1)       # e.g., "15"
+            normalized_article = f"제{article_num}조"  # e.g., "제15조" (공백 제거)
+            
+            if "important_kwd" not in d:
+                d["important_kwd"] = []
+            
+            # Add both versions for flexible search matching
+            # 1. Original version with spaces: "문서명 제 15 조"
+            article_title_original = f"{doc_name} {original_article}"
+            # 2. Normalized version without spaces: "문서명 제15조"
+            article_title_normalized = f"{doc_name} {normalized_article}"
+            
+            # Insert at the beginning for higher priority
+            d["important_kwd"].insert(0, article_title_normalized)  # Prefer normalized
+            if original_article != normalized_article:
+                d["important_kwd"].insert(1, article_title_original)
+            
+            d["important_tks"] = rag_tokenizer.tokenize(" ".join(d["important_kwd"]))
+            logging.debug(f"Added article keywords: {article_title_normalized}, {article_title_original}")
+        
         res.append(d)
     return res
 
