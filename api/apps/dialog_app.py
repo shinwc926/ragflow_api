@@ -68,15 +68,16 @@ async def set_dialog():
     meta_data_filter = req.get("meta_data_filter", {})
     prompt_config = req["prompt_config"]
 
-    if not req.get("kb_ids", []) and not prompt_config.get("tavily_api_key") and "{knowledge}" in prompt_config.get("system", ""):
-        return get_data_error_result(message="Please remove `{knowledge}` in system prompt since no dataset / Tavily used here.")
+    if not is_create:
+        if not req.get("kb_ids", []) and not prompt_config.get("tavily_api_key") and "{knowledge}" in prompt_config.get("system", ""):
+            return get_data_error_result(message="Please remove `{knowledge}` in system prompt since no dataset / Tavily used here.")
 
-    for p in prompt_config.get("parameters", []):
-        if p["optional"]:
-            continue
-        if prompt_config.get("system", "").find("{%s}" % p["key"]) < 0:
-            return get_data_error_result(
-                message="Parameter '{}' is not used".format(p["key"]))
+        for p in prompt_config.get("parameters", []):
+            if p["optional"]:
+                continue
+            if prompt_config.get("system", "").find("{%s}" % p["key"]) < 0:
+                return get_data_error_result(
+                    message="Parameter '{}' is not used".format(p["key"]))
 
     try:
         e, tenant = TenantService.get_by_id(current_user.id)
