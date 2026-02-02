@@ -156,6 +156,7 @@ CONTENT_TAGGING_PROMPT_TEMPLATE = load_prompt("content_tagging_prompt")
 CROSS_LANGUAGES_SYS_PROMPT_TEMPLATE = load_prompt("cross_languages_sys_prompt")
 CROSS_LANGUAGES_USER_PROMPT_TEMPLATE = load_prompt("cross_languages_user_prompt")
 FULL_QUESTION_PROMPT_TEMPLATE = load_prompt("full_question_prompt")
+FULL_QUESTION_PROMPT_KR_TEMPLATE = load_prompt("full_question_prompt_kr")
 KEYWORD_PROMPT_TEMPLATE = load_prompt("keyword_prompt")
 QUESTION_PROMPT_TEMPLATE = load_prompt("question_prompt")
 VISION_LLM_DESCRIBE_PROMPT = load_prompt("vision_llm_describe_prompt")
@@ -236,6 +237,56 @@ async def full_question(tenant_id=None, llm_id=None, messages=[], language=None,
     tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
 
     template = PROMPT_JINJA_ENV.from_string(FULL_QUESTION_PROMPT_TEMPLATE)
+    rendered_prompt = template.render(
+        today=today,
+        yesterday=yesterday,
+        tomorrow=tomorrow,
+        conversation=conversation,
+        language=language,
+    )
+
+    ans = await chat_mdl.async_chat(rendered_prompt, [{"role": "user", "content": "Output: "}])
+    ans = re.sub(r"^.*</think>", "", ans, flags=re.DOTALL)
+    return ans if ans.find("**ERROR**") < 0 else messages[-1]["content"]
+
+
+async def full_question_kr(tenant_id=None, llm_id=None, messages=[], language=None, chat_mdl=None):
+    """
+    한국어 최적화 질문 재작성 함수.
+    규정/조항 복원, 생략어 보완, 맥락 결합에 특화된 프롬프트 사용.
+    """
+    from common.constants import LLMType
+    from api.db.services.llm_service import LLMBundle
+    from api.db.services.tenant_llm_service import TenantLLMService
+
+    if not chat_mdl:
+        if TenantLLMService.llm_id2llm_type(llm_id) == "image2text":
+            chat_mdl = LLMBundle(tenant_id, LLMType.IMAGE2TEXT, llm_id)
+        else:
+            chat_mdl = LLMBundle(tenant_id, LLMType.CHAT, llm_id)
+    
+    conv = []
+    for m in messages:
+        if m["role"] not in ["user", "assistant"]:
+            continue
+        content = m["content"]
+        # 부정적 응답 패턴 필터링: LLM이 이를 학습하지 않도록
+        if m["role"] == "assistant" and (
+            "not found in the knowledge base" in content.lower() 
+            or "지식베이스에서 찾을 수 없습니다" in content
+            or "ERROR" in content
+            or "status_code" in content
+            or content.strip().startswith("<think>")
+        ):
+            # 부정적 응답은 대화 이력에서 제외하여 LLM이 패턴 학습하지 않도록
+            continue
+        conv.append("{}: {}".format(m["role"].upper(), content))
+    conversation = "\n".join(conv)
+    today = datetime.date.today().isoformat()
+    yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+
+    template = PROMPT_JINJA_ENV.from_string(FULL_QUESTION_PROMPT_KR_TEMPLATE)
     rendered_prompt = template.render(
         today=today,
         yesterday=yesterday,
